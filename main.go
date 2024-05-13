@@ -20,8 +20,16 @@ type TrackList struct {
 }
 
 type Track struct {
-	XMLName  xml.Name `xml:"track"`
-	Location string   `xml:"location"`
+	XMLName   xml.Name  `xml:"track"`
+	Location  string    `xml:"location"`
+	Extension Extension `xml:"extension"`
+}
+
+type Extension struct {
+	XMLName     xml.Name `xml:"extension"`
+	Application string   `xml:"application,attr"`
+	Id          string   `xml:"vlc:id"`
+	Option      []string `xml:"vlc:option"`
 }
 
 func exists(path string) (bool, error) {
@@ -39,7 +47,8 @@ func getVideosNames(pathToVideos string) []string {
 	ex, _ := exists(pathToVideos)
 	dirs := []string{}
 	videos := []string{}
-	rPtr := flag.Lookup("r").Value.(flag.Getter).Get().(bool)
+	recFlag := flag.Lookup("r").Value.(flag.Getter).Get().(bool)
+	dirFlag := flag.Lookup("dir").Value.(flag.Getter).Get().(string)
 
 	if !ex {
 		fmt.Println("not found")
@@ -57,11 +66,10 @@ func getVideosNames(pathToVideos string) []string {
 				}
 			}
 		}
-		if rPtr && len(dirs) != 0 {
+		if recFlag && len(dirs) != 0 {
 			// recursively creating playlists for subfolders
-			dirPtr := flag.Lookup("dir").Value.(flag.Getter).Get().(string)
 			for _, dir := range dirs {
-				createPlaylistFiles(dirPtr + "\\" + dir)
+				createPlaylistFiles(dirFlag + "\\" + dir)
 			}
 		}
 	}
@@ -71,16 +79,39 @@ func getVideosNames(pathToVideos string) []string {
 func createPlaylistXML(fileNames []string) string {
 	var allTracks []Track
 
-	for _, fileName := range fileNames {
-		allTracks = append(allTracks, Track{Location: fileName})
+	audioFlag := flag.Lookup("audioTrack").Value.(flag.Getter).Get().(int)
+	subFlag := flag.Lookup("subTrack").Value.(flag.Getter).Get().(int)
+	subFileFlag := flag.Lookup("subFile").Value.(flag.Getter).Get().(string)
+	noSubFlag := flag.Lookup("noSub").Value.(flag.Getter).Get().(bool)
+	var subValue int
+	if noSubFlag {
+		// Setting sub track to fake number to turn off subtitles
+		subValue = 99
+	} else {
+		subValue = subFlag
+	}
+
+	for i, fileName := range fileNames {
+		option := []string{"audio-track=" + fmt.Sprint(audioFlag)}
+		if subFileFlag != "" {
+			trackNumber := fmt.Sprintf("%02d", i+1)
+			option = append(option, "sub-file="+strings.Replace(subFileFlag, "$", trackNumber, 1))
+		} else {
+			option = append(option, "sub-track="+fmt.Sprint(subValue))
+		}
+		extension := &Extension{
+			Id:          fmt.Sprint(i),
+			Option:      option,
+			Application: "http://www.videolan.org/vlc/playlist/0",
+		}
+		allTracks = append(allTracks, Track{Location: fileName, Extension: *extension})
 	}
 
 	tracklist := &TrackList{Track: allTracks}
 	playlist := &Playlist{Tracklist: *tracklist}
 
-	var out, _ = xml.MarshalIndent(playlist, " ", "  ")
-	fmt.Println(xml.Header + string(out))
-	return string(out)
+	var out, _ = xml.MarshalIndent(playlist, "", "  ")
+	return xml.Header + string(out)
 }
 
 func createPlaylistFiles(path string) {
@@ -105,15 +136,13 @@ func createPlaylistFiles(path string) {
 
 func main() {
 	dirPtr := flag.String("dir", "", "a string")
-	audioPtr := flag.Int("audioTrack", 0, "a number")
-	subPtr := flag.String("subFile", "", "a string")
+	flag.Int("audioTrack", 0, "a number")
+	flag.Int("subTrack", 0, "a number")
+	flag.Bool("noSub", false, "a bool")
+	flag.String("subFile", "", "a string")
 	flag.Bool("r", false, "a boolean")
 
 	flag.Parse()
-
-	fmt.Println("dirPtr:", *dirPtr)
-	fmt.Println("audioPtr:", *audioPtr)
-	fmt.Println("subPtr:", *subPtr)
 
 	fmt.Println("tail:", flag.Args())
 	if *dirPtr != "" {
